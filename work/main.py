@@ -347,10 +347,10 @@ class TodoApp(ft.Column):
             ]),
         ]
 
-    async def did_mount(self):
+    def did_mount(self):
         self._storage = ft.SharedPreferences()
-        await self._load()
         self.page.update()
+        asyncio.ensure_future(self._load())
 
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
@@ -364,6 +364,8 @@ class TodoApp(ft.Column):
         self._save()
 
     async def _load(self):
+        if self.tasks.controls:
+            return
         data = None
         if self._storage:
             try:
@@ -374,10 +376,12 @@ class TodoApp(ft.Column):
                 pass
         if data is None:
             if not SAVE_FILE.exists():
+                self.page.update()
                 return
             try:
                 data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
             except Exception:
+                self.page.update()
                 return
         for d in data:
             if "schedules" in d:
@@ -404,6 +408,7 @@ class TodoApp(ft.Column):
             self.tasks.controls.append(task)
         if self.tasks.controls:
             self.save_indicator.value = "💾 保存済み"
+        self.page.update()
 
     async def add_clicked(self, e):
         if not self.company_input.value:
