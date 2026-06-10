@@ -6,6 +6,22 @@ from pathlib import Path
 
 SAVE_FILE = Path(__file__).parent / "data.json"
 
+try:
+    from js import localStorage as _storage
+    _STORAGE_KEY = "job_app_data"
+    def _save_storage(data):
+        _storage.setItem(_STORAGE_KEY, json.dumps(data, ensure_ascii=False))
+    def _load_storage():
+        val = _storage.getItem(_STORAGE_KEY)
+        if val is None:
+            return None
+        return json.loads(val)
+except ImportError:
+    def _save_storage(data):
+        pass
+    def _load_storage():
+        return None
+
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
     "金融・保険":     {"color": ft.Colors.GREEN_400,  "emoji": "💴"},
@@ -349,15 +365,18 @@ class TodoApp(ft.Column):
 
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
+        _save_storage(data)
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
 
     def _load(self):
-        if not SAVE_FILE.exists():
-            return
-        try:
-            data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
-        except Exception:
-            return
+        data = _load_storage()
+        if data is None:
+            if not SAVE_FILE.exists():
+                return
+            try:
+                data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                return
         for d in data:
             if "schedules" in d:
                 schedules = [schedule_from_dict(s) for s in d["schedules"]]
