@@ -205,6 +205,24 @@ self.initPyodide = async function () {
     }
 };
 
+// localStorage bridge — main thread handles actual localStorage
+let _storageReqId = 0;
+let _storageResolvers = {};
+self.flet_js._getLocalStorage = function (key) {
+    return new Promise((resolve) => {
+        const id = ++_storageReqId;
+        _storageResolvers[id] = resolve;
+        self.postMessage({__type: "storage_req", method: "get", key: key, id: id});
+    });
+};
+self.flet_js._setLocalStorage = function (key, value) {
+    return new Promise((resolve) => {
+        const id = ++_storageReqId;
+        _storageResolvers[id] = resolve;
+        self.postMessage({__type: "storage_req", method: "set", key: key, value: value, id: id});
+    });
+};
+
 self.receiveCallback = (message) => {
     self.postMessage(message.toJs());
 }
@@ -213,6 +231,15 @@ self.receiveCallback = (message) => {
 self.flet_js.receive_callback = self.receiveCallback;
 
 self.onmessage = async (event) => {
+    // Handle localStorage response from main thread
+    if (event.data && event.data.__type === "storage_resp") {
+        const resolver = _storageResolvers[event.data.id];
+        if (resolver) {
+            delete _storageResolvers[event.data.id];
+            resolver(event.data.value !== undefined ? event.data.value : null);
+        }
+        return;
+    }
     // run only once
     if (!self.initialized) {
         self.initialized = true;

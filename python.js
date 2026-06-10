@@ -16,6 +16,16 @@ globalThis.jsConnect = async function(appId, args, dartOnMessage) {
 
     var error;
     app.worker.onmessage = (event) => {
+        if (event.data && event.data.__type === "storage_req") {
+            if (event.data.method === "get") {
+                const val = localStorage.getItem(event.data.key);
+                app.worker.postMessage({__type: "storage_resp", id: event.data.id, value: val});
+            } else if (event.data.method === "set") {
+                localStorage.setItem(event.data.key, event.data.value);
+                app.worker.postMessage({__type: "storage_resp", id: event.data.id});
+            }
+            return;
+        }
         if (typeof event.data === "string") {
             if (event.data != "initialized") {
                 error = event.data;

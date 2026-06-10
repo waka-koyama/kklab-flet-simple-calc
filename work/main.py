@@ -4,7 +4,20 @@ from datetime import date, datetime, timezone
 from pathlib import Path
 
 SAVE_FILE = Path(__file__).parent / "data.json"
-_STORE_KEY = "job_app_data"
+
+try:
+    from flet_js import _getLocalStorage, _setLocalStorage
+    _STORE_KEY = "job_app_data"
+    async def _save_storage(data):
+        await _setLocalStorage(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+    async def _load_storage():
+        val = await _getLocalStorage(_STORE_KEY)
+        if val is None:
+            return None
+        return json.loads(str(val))
+except (ImportError, AttributeError):
+    async def _save_storage(data): pass
+    async def _load_storage(): return None
 
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
@@ -324,7 +337,6 @@ class TodoApp(ft.Column):
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
         self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
         self.save_btn = ft.FilledTonalButton("保存", on_click=self._save_all_clicked)
-        self._storage = None
 
         self.width = 640
         self.controls = [
@@ -348,14 +360,12 @@ class TodoApp(ft.Column):
         ]
 
     def did_mount(self):
-        self._storage = ft.SharedPreferences()
         self.page.update()
         asyncio.ensure_future(self._load())
 
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
-        if self._storage:
-            asyncio.ensure_future(self._storage.set(_STORE_KEY, json.dumps(data, ensure_ascii=False)))
+        asyncio.ensure_future(_save_storage(data))
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
         self.update()
@@ -367,13 +377,10 @@ class TodoApp(ft.Column):
         if self.tasks.controls:
             return
         data = None
-        if self._storage:
-            try:
-                val = await self._storage.get(_STORE_KEY)
-                if val is not None:
-                    data = json.loads(str(val))
-            except Exception:
-                pass
+        try:
+            data = await _load_storage()
+        except Exception:
+            pass
         if data is None:
             if not SAVE_FILE.exists():
                 self.page.update()
