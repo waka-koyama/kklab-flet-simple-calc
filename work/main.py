@@ -192,7 +192,6 @@ class Task(ft.Column):
             v = date_picker.value
             d = v.date() if hasattr(v, "date") else v
             sched_data[picker_ctx["idx"]][picker_ctx["field"]] = d
-            date_picker.open = False
             _rebuild()
             self.page.update()
 
@@ -201,8 +200,7 @@ class Task(ft.Column):
         def open_picker(idx, field):
             picker_ctx["idx"] = idx
             picker_ctx["field"] = field
-            date_picker.open = True
-            self.page.update()
+            self.page.show_dialog(date_picker)
 
         def _rebuild():
             sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
@@ -213,7 +211,7 @@ class Task(ft.Column):
             type_dd = ft.Dropdown(
                 value=s["type"], width=130,
                 options=[ft.dropdown.Option(t) for t in SCHEDULE_TYPES],
-                on_change=lambda e, i=i: (_type_change(i, e.control.value)),
+                on_select=lambda e, i=i: (_type_change(i, e.control.value)),
             )
             ctrls = [type_dd]
             if s["type"] == "インターン":
@@ -226,7 +224,7 @@ class Task(ft.Column):
                     ft.Dropdown(
                         value=s.get("state", "希望"), width=90,
                         options=[ft.dropdown.Option(st) for st in INTERN_STATES],
-                        on_change=lambda e, i=i: sched_data[i].update({"state": e.control.value}),
+                        on_select=lambda e, i=i: sched_data[i].update({"state": e.control.value}),
                     ),
                 ]
             else:
@@ -290,8 +288,7 @@ class Task(ft.Column):
                 ft.TextButton("キャンセル", on_click=cancel),
             ],
         )
-        dlg.open = True
-        self.page.update()
+        self.page.show_dialog(dlg)
 
     def status_changed(self, e):
         self.completed = self.display_task.value
