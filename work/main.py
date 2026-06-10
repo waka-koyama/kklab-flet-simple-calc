@@ -376,8 +376,6 @@ class TodoApp(ft.Column):
     def _save_all_clicked(self, e):
         self._save()
 
-    def _add(self, e):
-
     def _load(self):
         data = _load_storage()
         if data is None:
