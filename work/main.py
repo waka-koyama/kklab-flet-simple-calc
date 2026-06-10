@@ -337,11 +337,8 @@ class TodoApp(ft.Column):
         self.filter_tabs = ft.Tabs(length=3, selected_index=0, on_change=lambda e: self.update(), content=self.filter)
         self.items_left = ft.Text("0 社選考中")
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
-        self.save_indicator = ft.Container(
-            content=ft.Row([ft.Text("💾", size=14), ft.Text("自動保存", size=11, color=ft.Colors.GREEN_600)],
-                           spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
-            visible=False,
-        )
+        self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
+        self.save_btn = ft.FilledTonalButton("保存", on_click=self._save_all_clicked)
 
         self.width = 640
         self.controls = [
@@ -358,7 +355,7 @@ class TodoApp(ft.Column):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[self.items_left,
-                               self.save_indicator,
+                               ft.Row(spacing=6, controls=[self.save_btn, self.save_indicator]),
                                ft.OutlinedButton(content="終了分を削除", on_click=self.clear_clicked)],
                 ),
             ]),
@@ -372,7 +369,12 @@ class TodoApp(ft.Column):
         data = [t.to_dict() for t in self.tasks.controls]
         _save_storage(data)
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.save_indicator.visible = True
+        from datetime import datetime
+        self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
+        self.update()
+
+    def _save_all_clicked(self, e):
+        self._save()
 
     def _add(self, e):
 
@@ -409,7 +411,7 @@ class TodoApp(ft.Column):
             task.completed = d.get("completed", False)
             self.tasks.controls.append(task)
         if self.tasks.controls:
-            self.save_indicator.visible = True
+            self.save_indicator.value = "💾 保存済み"
 
     async def add_clicked(self, e):
         if not self.company_input.value:
