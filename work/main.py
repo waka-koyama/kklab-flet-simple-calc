@@ -1,4 +1,4 @@
-import json, copy
+import json, copy, asyncio
 import flet as ft
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -6,20 +6,18 @@ from pathlib import Path
 SAVE_FILE = Path(__file__).parent / "data.json"
 
 try:
-    from js import localStorage as _storage
-    _STORAGE_KEY = "job_app_data"
-    def _save_storage(data):
-        _storage.setItem(_STORAGE_KEY, json.dumps(data, ensure_ascii=False))
-    def _load_storage():
-        val = _storage.getItem(_STORAGE_KEY)
+    from flet_js import idbPut, idbGet
+    _STORE_KEY = "job_app_data"
+    async def _save_storage(data):
+        await idbPut(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+    async def _load_storage():
+        val = await idbGet(_STORE_KEY)
         if val is None:
             return None
-        return json.loads(val)
-except ImportError:
-    def _save_storage(data):
-        pass
-    def _load_storage():
-        return None
+        return json.loads(str(val))
+except (ImportError, AttributeError):
+    async def _save_storage(data): pass
+    async def _load_storage(): return None
 
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
@@ -361,23 +359,22 @@ class TodoApp(ft.Column):
             ]),
         ]
 
-    def did_mount(self):
-        self._load()
+    async def did_mount(self):
+        await self._load()
         self.page.update()
 
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
-        _save_storage(data)
+        asyncio.ensure_future(_save_storage(data))
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        from datetime import datetime
         self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
         self.update()
 
     def _save_all_clicked(self, e):
         self._save()
 
-    def _load(self):
-        data = _load_storage()
+    async def _load(self):
+        data = await _load_storage()
         if data is None:
             if not SAVE_FILE.exists():
                 return

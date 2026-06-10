@@ -205,6 +205,42 @@ self.initPyodide = async function () {
     }
 };
 
+// IndexedDB helper for persistent storage from the worker
+self.flet_js.idbPut = function (key, value) {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("job_app_db", 1);
+        request.onupgradeneeded = (event) => {
+            event.target.result.createObjectStore("data");
+        };
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            const tx = db.transaction("data", "readwrite");
+            const store = tx.objectStore("data");
+            const putReq = store.put(value, key);
+            putReq.onsuccess = () => resolve();
+            putReq.onerror = () => reject(putReq.error);
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+self.flet_js.idbGet = function (key) {
+    return new Promise((resolve, reject) => {
+        const request = indexedDB.open("job_app_db", 1);
+        request.onupgradeneeded = (event) => {
+            event.target.result.createObjectStore("data");
+        };
+        request.onsuccess = (event) => {
+            const db = event.target.result;
+            const tx = db.transaction("data", "readonly");
+            const store = tx.objectStore("data");
+            const getReq = store.get(key);
+            getReq.onsuccess = () => resolve(getReq.result);
+            getReq.onerror = () => reject(getReq.error);
+        };
+        request.onerror = () => reject(request.error);
+    });
+};
+
 self.receiveCallback = (message) => {
     self.postMessage(message.toJs());
 }
