@@ -192,6 +192,7 @@ class Task(ft.Column):
             v = date_picker.value
             d = v.date() if hasattr(v, "date") else v
             sched_data[picker_ctx["idx"]][picker_ctx["field"]] = d
+            date_picker.open = False
             _rebuild()
             self.page.update()
 
@@ -200,7 +201,8 @@ class Task(ft.Column):
         def open_picker(idx, field):
             picker_ctx["idx"] = idx
             picker_ctx["field"] = field
-            self.page.show_dialog(date_picker)
+            date_picker.open = True
+            self.page.update()
 
         def _rebuild():
             sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
@@ -288,7 +290,8 @@ class Task(ft.Column):
                 ft.TextButton("キャンセル", on_click=cancel),
             ],
         )
-        self.page.show_dialog(dlg)
+        dlg.open = True
+        self.page.update()
 
     def status_changed(self, e):
         self.completed = self.display_task.value
