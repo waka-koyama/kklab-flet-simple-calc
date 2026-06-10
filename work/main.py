@@ -367,6 +367,10 @@ class TodoApp(ft.Column):
         data = [t.to_dict() for t in self.tasks.controls]
         _save_storage(data)
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        try:
+            self.page.show_dialog(ft.SnackBar(ft.Text("✅ 保存しました"), duration=1500))
+        except Exception:
+            pass
 
     def _load(self):
         data = _load_storage()
