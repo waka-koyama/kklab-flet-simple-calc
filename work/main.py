@@ -1,5 +1,4 @@
-import json
-import copy
+import json, copy, time
 import flet as ft
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -338,6 +337,8 @@ class TodoApp(ft.Column):
         self.filter_tabs = ft.Tabs(length=3, selected_index=0, on_change=lambda e: self.update(), content=self.filter)
         self.items_left = ft.Text("0 社選考中")
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
+        self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
+        self._save_time = 0
 
         self.width = 640
         self.controls = [
@@ -354,6 +355,7 @@ class TodoApp(ft.Column):
                     alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
                     vertical_alignment=ft.CrossAxisAlignment.CENTER,
                     controls=[self.items_left,
+                               self.save_indicator,
                                ft.OutlinedButton(content="終了分を削除", on_click=self.clear_clicked)],
                 ),
             ]),
@@ -367,10 +369,11 @@ class TodoApp(ft.Column):
         data = [t.to_dict() for t in self.tasks.controls]
         _save_storage(data)
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        try:
-            self.page.show_dialog(ft.SnackBar(ft.Text("✅ 保存しました"), duration=1500))
-        except Exception:
-            pass
+        self.save_indicator.value = "✓ 保存しました"
+        self.save_indicator.update()
+        self._save_time = time.monotonic()
+
+    def _add(self, e):
 
     def _load(self):
         data = _load_storage()
@@ -446,6 +449,8 @@ class TodoApp(ft.Column):
                 count += 1
                 stats[task.status] = stats.get(task.status, 0) + 1
         self.items_left.value = f"{count} 社選考中"
+        if self.save_indicator.value and time.monotonic() - self._save_time > 2:
+            self.save_indicator.value = ""
         parts = [f"{s}: {n}社" for s, n in stats.items()]
         self.stats_text.value = "　".join(parts) if parts else ""
 
