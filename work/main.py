@@ -1,4 +1,4 @@
-import json, copy, time
+import json, copy
 import flet as ft
 from datetime import date, datetime, timezone
 from pathlib import Path
@@ -337,8 +337,11 @@ class TodoApp(ft.Column):
         self.filter_tabs = ft.Tabs(length=3, selected_index=0, on_change=lambda e: self.update(), content=self.filter)
         self.items_left = ft.Text("0 社選考中")
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
-        self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
-        self._save_time = 0
+        self.save_indicator = ft.Container(
+            content=ft.Row([ft.Text("💾", size=14), ft.Text("自動保存", size=11, color=ft.Colors.GREEN_600)],
+                           spacing=2, vertical_alignment=ft.CrossAxisAlignment.CENTER),
+            visible=False,
+        )
 
         self.width = 640
         self.controls = [
@@ -369,9 +372,7 @@ class TodoApp(ft.Column):
         data = [t.to_dict() for t in self.tasks.controls]
         _save_storage(data)
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
-        self.save_indicator.value = "✓ 保存しました"
-        self.save_indicator.update()
-        self._save_time = time.monotonic()
+        self.save_indicator.visible = True
 
     def _add(self, e):
 
@@ -407,6 +408,8 @@ class TodoApp(ft.Column):
             )
             task.completed = d.get("completed", False)
             self.tasks.controls.append(task)
+        if self.tasks.controls:
+            self.save_indicator.visible = True
 
     async def add_clicked(self, e):
         if not self.company_input.value:
@@ -449,8 +452,6 @@ class TodoApp(ft.Column):
                 count += 1
                 stats[task.status] = stats.get(task.status, 0) + 1
         self.items_left.value = f"{count} 社選考中"
-        if self.save_indicator.value and time.monotonic() - self._save_time > 2:
-            self.save_indicator.value = ""
         parts = [f"{s}: {n}社" for s, n in stats.items()]
         self.stats_text.value = "　".join(parts) if parts else ""
 
