@@ -1,7 +1,7 @@
 import json
 import copy
 import flet as ft
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 SAVE_FILE = Path(__file__).parent / "data.json"
@@ -190,7 +190,10 @@ class Task(ft.Column):
             if not date_picker.value:
                 return
             v = date_picker.value
-            d = v.date() if hasattr(v, "date") else v
+            if isinstance(v, datetime):
+                d = v.replace(tzinfo=timezone.utc).astimezone().date()
+            else:
+                d = v
             sched_data[picker_ctx["idx"]][picker_ctx["field"]] = d
             _rebuild()
             self.page.update()
