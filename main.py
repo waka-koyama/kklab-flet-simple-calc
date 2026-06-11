@@ -1,9 +1,23 @@
-import json
+import json, copy, asyncio
 import flet as ft
-from datetime import date
+from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 SAVE_FILE = Path(__file__).parent / "data.json"
+
+try:
+    from flet_js import _getLocalStorage, _setLocalStorage
+    _STORE_KEY = "job_app_data"
+    async def _save_storage(data):
+        await _setLocalStorage(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+    async def _load_storage():
+        val = await _getLocalStorage(_STORE_KEY)
+        if val is None:
+            return None
+        return json.loads(str(val))
+except (ImportError, AttributeError):
+    async def _save_storage(data): pass
+    async def _load_storage(): return None
 
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
@@ -28,6 +42,17 @@ STATUS_COLORS = {
     "お祈り":               ft.Colors.GREY_600,
 }
 
+SCHEDULE_TYPES = ["ES提出", "適性検査締切", "面接案内", "インターン", "選考", "その他"]
+SCHEDULE_ICONS = {
+    "ES提出":     "📋",
+    "適性検査締切": "📝",
+    "面接案内":   "📬",
+    "インターン": "🏢",
+    "選考":       "📅",
+    "その他":     "🗓",
+}
+INTERN_STATES = ["希望", "確定", "不参加"]
+
 
 def fmt(d: date) -> str:
     return d.strftime("%Y/%m/%d")
@@ -39,16 +64,102 @@ def countdown(d: date) -> str:
     return f"⏳ あと {delta} 日 ({fmt(d)})"
 
 
+def schedule_to_dict(s: dict) -> dict:
+    out = {"type": s["type"]}
+    if s["type"] == "インターン":
+        out["start"] = s["start"].isoformat() if s.get("start") else None
+        out["end"]   = s["end"].isoformat()   if s.get("end")   else None
+        out["state"] = s.get("state", "希望")
+    else:
+        out["date"] = s["date"].isoformat() if s.get("date") else None
+    return out
+
+def schedule_from_dict(d: dict) -> dict:
+    def p(s): return date.fromisoformat(s) if s else None
+    if d["type"] == "インターン":
+        return {"type": "インターン", "start": p(d.get("start")), "end": p(d.get("end")), "state": d.get("state", "希望")}
+    return {"type": d["type"], "date": p(d.get("date"))}
+
+
+def _make_display_view(task: "Task") -> ft.Container:
+    """Task の状態から表示用 Container を新規作成する"""
+    info = INDUSTRIES[task.industry]
+    color = info["color"]
+    emoji = info["emoji"]
+    status_color = STATUS_COLORS.get(task.status, ft.Colors.GREY_400)
+
+    badges = [ft.Container(
+        content=ft.Text(task.status, size=11, color=ft.Colors.WHITE),
+        bgcolor=status_color,
+        padding=ft.Padding(left=8, right=8, top=2, bottom=2),
+        border_radius=10,
+    )]
+    for s in task.schedules:
+        if s["type"] == "インターン" and s.get("state") == "確定" and s.get("start"):
+            label = f"🏢 {fmt(s['start'])}"
+            if s.get("end"):
+                label += f"〜{fmt(s['end'])}"
+            badges.append(ft.Container(
+                content=ft.Text(label, size=11, color=ft.Colors.WHITE),
+                bgcolor=ft.Colors.TEAL_400,
+                padding=ft.Padding(left=8, right=8, top=2, bottom=2),
+                border_radius=10,
+            ))
+
+    date_lines = []
+    for s in task.schedules:
+        icon = SCHEDULE_ICONS.get(s["type"], "🗓")
+        if s["type"] == "インターン":
+            state = s.get("state", "希望")
+            start = s.get("start")
+            end   = s.get("end")
+            if start:
+                label = f"{icon} インターン[{state}] {fmt(start)}"
+                if end:
+                    label += f"〜{fmt(end)}"
+                color_map = {"希望": ft.Colors.GREY_500, "確定": ft.Colors.TEAL_300, "不参加": ft.Colors.GREY_400}
+                date_lines.append(ft.Text(label, size=12,
+                                          color=color_map.get(state, ft.Colors.GREY_500),
+                                          italic=(state == "不参加")))
+        else:
+            if s.get("date"):
+                date_lines.append(ft.Text(
+                    f"{icon} {s['type']} {countdown(s['date'])}",
+                    size=12, color=ft.Colors.GREY_500))
+
+    return ft.Container(
+        content=ft.Row(
+            alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+            vertical_alignment=ft.CrossAxisAlignment.CENTER,
+            controls=[
+                ft.Column(spacing=4, controls=[
+                    ft.Row(spacing=6, controls=[
+                        ft.Text(f"{emoji} {task.industry}", size=11, color=color, weight=ft.FontWeight.BOLD),
+                        *badges,
+                    ]),
+                    task.display_task,
+                    *date_lines,
+                ]),
+                ft.Row(spacing=0, controls=[
+                    ft.IconButton(ft.Icons.CREATE_OUTLINED, tooltip="編集", on_click=task.edit_clicked),
+                    ft.IconButton(ft.Icons.DELETE_OUTLINE,  tooltip="削除", on_click=task.delete_clicked),
+                ]),
+            ],
+        ),
+        border=ft.Border.only(left=ft.border.BorderSide(4, color)),
+        padding=ft.Padding(left=8, top=6, bottom=6, right=0),
+        border_radius=4,
+    )
+
+
 class Task(ft.Column):
-    def __init__(self, company, industry, status, exam_date, intern_start, intern_end, task_delete, task_save=None):
+    def __init__(self, company, industry, status, schedules, task_delete, task_save=None):
         super().__init__()
         self.completed = False
         self.company = company
         self.industry = industry
         self.status = status
-        self.exam_date = exam_date
-        self.intern_start = intern_start
-        self.intern_end = intern_end
+        self.schedules = schedules
         self.task_delete = task_delete
         self.task_save = task_save
 
@@ -58,71 +169,22 @@ class Task(ft.Column):
             "industry": self.industry,
             "status": self.status,
             "completed": self.completed,
-            "exam_date": self.exam_date.isoformat() if self.exam_date else None,
-            "intern_start": self.intern_start.isoformat() if self.intern_start else None,
-            "intern_end": self.intern_end.isoformat() if self.intern_end else None,
+            "schedules": [schedule_to_dict(s) for s in self.schedules],
         }
 
     def build(self):
-        self.display_task = ft.Checkbox(value=False, label=self.company, on_change=self.status_changed)
-        self._render()
+        self.display_task = ft.Checkbox(
+            value=self.completed, label=self.company, on_change=self.status_changed)
+        self.controls = [_make_display_view(self)]
 
-    def _render(self):
-        info = INDUSTRIES[self.industry]
-        color = info["color"]
-        emoji = info["emoji"]
-        status_color = STATUS_COLORS.get(self.status, ft.Colors.GREY_400)
-
-        badges = [ft.Container(
-            content=ft.Text(self.status, size=11, color=ft.Colors.WHITE),
-            bgcolor=status_color,
-            padding=ft.Padding(left=8, right=8, top=2, bottom=2),
-            border_radius=10,
-        )]
-        if self.intern_start:
-            label = f"🏢 {fmt(self.intern_start)}"
-            if self.intern_end:
-                label += f" 〜 {fmt(self.intern_end)}"
-            badges.append(ft.Container(
-                content=ft.Text(label, size=11, color=ft.Colors.WHITE),
-                bgcolor=ft.Colors.TEAL_400,
-                padding=ft.Padding(left=8, right=8, top=2, bottom=2),
-                border_radius=10,
-            ))
-
-        date_lines = []
-        if self.exam_date:
-            date_lines.append(ft.Text(f"📅 選考日 {countdown(self.exam_date)}", size=12, color=ft.Colors.GREY_500))
-        if self.intern_start:
-            date_lines.append(ft.Text(f"🏢 インターン開始 {countdown(self.intern_start)}", size=12, color=ft.Colors.TEAL_300))
-
-        self.display_view = ft.Container(
-            content=ft.Row(
-                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                controls=[
-                    ft.Column(spacing=4, controls=[
-                        ft.Row(spacing=6, controls=[
-                            ft.Text(f"{emoji} {self.industry}", size=11, color=color, weight=ft.FontWeight.BOLD),
-                            *badges,
-                        ]),
-                        self.display_task,
-                        *date_lines,
-                    ]),
-                    ft.Row(spacing=0, controls=[
-                        ft.IconButton(ft.Icons.CREATE_OUTLINED, tooltip="編集", on_click=self.edit_clicked),
-                        ft.IconButton(ft.Icons.DELETE_OUTLINE, tooltip="削除", on_click=self.delete_clicked),
-                    ]),
-                ],
-            ),
-            border=ft.Border.only(left=ft.border.BorderSide(4, color)),
-            padding=ft.Padding(left=8, top=6, bottom=6, right=0),
-            border_radius=4,
-        )
-        self.controls = [self.display_view]
+    def refresh(self):
+        """保存後に表示を更新する（controls[0] を差し替え）"""
+        self.display_task.label = self.company
+        self.controls = [_make_display_view(self)]
+        if self.page:
+            self.update()
 
     def edit_clicked(self, e):
-        # ダイアログ内の各フィールド
         name_field = ft.TextField(label="企業名", value=self.company, expand=True)
         industry_dd = ft.Dropdown(
             label="業界", value=self.industry, width=160,
@@ -133,100 +195,116 @@ class Task(ft.Column):
             options=[ft.dropdown.Option(s) for s in STATUSES],
         )
 
-        # 選考日
-        exam_ref = {"date": self.exam_date}
-        exam_btn = ft.ElevatedButton(
-            f"📅 {fmt(self.exam_date)}" if self.exam_date else "📅 選考日を選択",
-            on_click=lambda e: open_picker("exam"),
-        )
-
-        # インターン
-        intern_ref = {"start": self.intern_start, "end": self.intern_end}
-        intern_start_btn = ft.ElevatedButton(
-            f"🏢 開始 {fmt(self.intern_start)}" if self.intern_start else "🏢 開始日を選択",
-            on_click=lambda e: open_picker("intern_start"),
-        )
-        intern_end_btn = ft.ElevatedButton(
-            f"〜 終了 {fmt(self.intern_end)}" if self.intern_end else "〜 終了日を選択",
-            visible=self.intern_start is not None,
-            on_click=lambda e: open_picker("intern_end"),
-        )
-        intern_none_btn = ft.OutlinedButton("インターンなし", on_click=lambda e: clear_intern())
-
-        picker_target = {"val": "exam"}
+        sched_data = copy.deepcopy(self.schedules)
+        sched_col = ft.Column(spacing=6)
+        picker_ctx = {"idx": 0, "field": "date"}
 
         def on_pick(e):
             if not date_picker.value:
                 return
             v = date_picker.value
-            d = v.date() if hasattr(v, "date") else v
-            t = picker_target["val"]
-            if t == "exam":
-                exam_ref["date"] = d
-                exam_btn.text = f"📅 {fmt(d)}"
-            elif t == "intern_start":
-                intern_ref["start"] = d
-                intern_start_btn.text = f"🏢 開始 {fmt(d)}"
-                intern_end_btn.visible = True
-            elif t == "intern_end":
-                intern_ref["end"] = d
-                intern_end_btn.text = f"〜 終了 {fmt(d)}"
+            if isinstance(v, datetime):
+                d = v.replace(tzinfo=timezone.utc).astimezone().date()
+            else:
+                d = v
+            sched_data[picker_ctx["idx"]][picker_ctx["field"]] = d
+            _rebuild()
             self.page.update()
 
         date_picker = ft.DatePicker(on_change=on_pick, on_dismiss=on_pick)
 
-        def open_picker(target):
-            picker_target["val"] = target
-            date_picker.open = True
+        def open_picker(idx, field):
+            picker_ctx["idx"] = idx
+            picker_ctx["field"] = field
+            self.page.show_dialog(date_picker)
+
+        def _rebuild():
+            sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
+            if sched_col.page:
+                sched_col.update()
+
+        def _row(i, s):
+            type_dd = ft.Dropdown(
+                value=s["type"], width=130,
+                options=[ft.dropdown.Option(t) for t in SCHEDULE_TYPES],
+                on_select=lambda e, i=i: (_type_change(i, e.control.value)),
+            )
+            ctrls = [type_dd]
+            if s["type"] == "インターン":
+                ctrls += [
+                    ft.TextButton(fmt(s["start"]) if s.get("start") else "開始日",
+                                  on_click=lambda e, i=i: open_picker(i, "start")),
+                    ft.Text("〜"),
+                    ft.TextButton(fmt(s["end"]) if s.get("end") else "終了日",
+                                  on_click=lambda e, i=i: open_picker(i, "end")),
+                    ft.Dropdown(
+                        value=s.get("state", "希望"), width=90,
+                        options=[ft.dropdown.Option(st) for st in INTERN_STATES],
+                        on_select=lambda e, i=i: sched_data[i].update({"state": e.control.value}),
+                    ),
+                ]
+            else:
+                ctrls.append(ft.TextButton(
+                    fmt(s["date"]) if s.get("date") else "日付を選択",
+                    on_click=lambda e, i=i: open_picker(i, "date")))
+            ctrls.append(ft.IconButton(ft.Icons.CLOSE, icon_size=16,
+                                       on_click=lambda e, i=i: (_remove(i))))
+            return ft.Row(controls=ctrls, wrap=True, spacing=4)
+
+        def _type_change(i, new_type):
+            if new_type == "インターン":
+                sched_data[i] = {"type": "インターン", "start": None, "end": None, "state": "希望"}
+            else:
+                sched_data[i] = {"type": new_type, "date": None}
+            _rebuild()
             self.page.update()
 
-        def clear_intern():
-            intern_ref["start"] = None
-            intern_ref["end"] = None
-            intern_start_btn.text = "🏢 開始日を選択"
-            intern_end_btn.text = "〜 終了日を選択"
-            intern_end_btn.visible = False
+        def _remove(i):
+            sched_data.pop(i)
+            _rebuild()
             self.page.update()
+
+        def _add(e):
+            sched_data.append({"type": "ES提出", "date": None})
+            _rebuild()
+            self.page.update()
+
+        # 初期描画（まだ page に属していないので sched_col.update() はしない）
+        sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
 
         def save(e):
-            self.company = name_field.value
+            self.company  = name_field.value
             self.industry = industry_dd.value
-            self.status = status_dd.value
-            self.exam_date = exam_ref["date"]
-            self.intern_start = intern_ref["start"]
-            self.intern_end = intern_ref["end"]
-            self.display_task.label = self.company
-            self.page.overlay.remove(date_picker)
+            self.status   = status_dd.value
+            self.schedules = sched_data
             dlg.open = False
-            self._render()
-            self.update()
+            self.page.update()
+            self.refresh()
             if self.task_save:
                 self.task_save()
             self.page.update()
 
         def cancel(e):
-            self.page.overlay.remove(date_picker)
             dlg.open = False
             self.page.update()
 
         dlg = ft.AlertDialog(
             modal=True,
             title=ft.Text("企業情報を編集"),
-            content=ft.Column(spacing=10, width=400, controls=[
+            content=ft.Column(spacing=10, width=420, scroll=ft.ScrollMode.AUTO, controls=[
                 name_field,
                 ft.Row(wrap=True, spacing=8, controls=[industry_dd, status_dd]),
-                ft.Row(wrap=True, spacing=8, controls=[exam_btn]),
-                ft.Row(wrap=True, spacing=8, controls=[intern_start_btn, intern_end_btn, intern_none_btn]),
+                ft.Divider(),
+                ft.Text("日程", weight=ft.FontWeight.BOLD),
+                sched_col,
+                ft.TextButton("＋ 日程を追加", on_click=_add),
             ]),
             actions=[
                 ft.TextButton("保存", on_click=save),
                 ft.TextButton("キャンセル", on_click=cancel),
             ],
         )
-        self.page.overlay.append(date_picker)
-        self.page.overlay.append(dlg)
-        dlg.open = True
-        self.page.update()
+        self.page.show_dialog(dlg)
 
     def status_changed(self, e):
         self.completed = self.display_task.value
@@ -249,107 +327,219 @@ class TodoApp(ft.Column):
             value="ES作成中", width=175, label="選考状況",
             options=[ft.dropdown.Option(s) for s in STATUSES],
         )
-
-        self.exam_date_btn = ft.ElevatedButton("📅 選考日を選択", on_click=lambda e: self._open("exam"))
-        self.selected_exam: date | None = None
-
-        self.intern_start_btn = ft.ElevatedButton("🏢 開始日を選択", on_click=lambda e: self._open("intern_start"))
-        self.intern_end_btn   = ft.ElevatedButton("〜 終了日を選択", on_click=lambda e: self._open("intern_end"), visible=False)
-        self.intern_none_btn  = ft.OutlinedButton("インターンなし", on_click=self._clear_intern)
-        self.selected_intern_start: date | None = None
-        self.selected_intern_end:   date | None = None
-
-        self._picker_target = "exam"
-        self.date_picker = ft.DatePicker(on_change=self._date_picked, on_dismiss=self._date_picked)
-
         self.tasks = ft.Column()
         self.filter = ft.TabBar(
             scrollable=False,
-            tabs=[ft.Tab(label="すべて"), ft.Tab(label="選考中"), ft.Tab(label="終了")],
+            tabs=[ft.Tab(label="すべて"), ft.Tab(label="選考中"), ft.Tab(label="終了"), ft.Tab(label="カレンダー")],
         )
-        self.filter_tabs = ft.Tabs(length=3, selected_index=0, on_change=lambda e: self.update(), content=self.filter)
+        self.filter_tabs = ft.Tabs(length=4, selected_index=0, on_change=self._on_tab_change, content=self.filter)
         self.items_left = ft.Text("0 社選考中")
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
+        self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
+        self.save_btn = ft.FilledTonalButton("保存", on_click=self._save_all_clicked)
+
+        # Calendar
+        self._calendar_ref = date.today()
+        self.calendar_month_text = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
+        self.calendar_prev = ft.IconButton(ft.Icons.NAVIGATE_BEFORE, on_click=self._cal_prev)
+        self.calendar_next = ft.IconButton(ft.Icons.NAVIGATE_NEXT, on_click=self._cal_next)
+        self.calendar_grid = ft.Column(spacing=1)
+
+        self.task_list_view = ft.Column(spacing=25, controls=[
+            self.tasks,
+            ft.Row(
+                alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
+                vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                controls=[self.items_left,
+                           ft.Row(spacing=6, controls=[self.save_btn, self.save_indicator]),
+                           ft.OutlinedButton(content="終了分を削除", on_click=self.clear_clicked)],
+            ),
+        ])
+        self.calendar_view = ft.Column(spacing=10, visible=False, controls=[
+            ft.Row(alignment=ft.MainAxisAlignment.CENTER, controls=[
+                self.calendar_prev, self.calendar_month_text, self.calendar_next,
+            ]),
+            ft.Container(content=self.calendar_grid, padding=ft.Padding(left=4, top=0, right=4, bottom=0)),
+        ])
 
         self.width = 640
         self.controls = [
-            ft.Row([ft.Text("📝 就活記録", theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM)], alignment=ft.MainAxisAlignment.CENTER),
+            ft.Row([ft.Text("📝 就活記録", theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM)],
+                   alignment=ft.MainAxisAlignment.CENTER),
             self.stats_text,
-            ft.Row(controls=[self.company_input, ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=self.add_clicked)]),
+            ft.Row(controls=[self.company_input,
+                              ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=self.add_clicked)]),
             ft.Row(wrap=True, spacing=8, controls=[self.industry_dd, self.status_dd]),
-            ft.Row(wrap=True, spacing=8, controls=[self.exam_date_btn]),
-            ft.Row(wrap=True, spacing=8, controls=[self.intern_start_btn, self.intern_end_btn, self.intern_none_btn]),
             ft.Column(spacing=25, controls=[
                 self.filter_tabs,
-                self.tasks,
-                ft.Row(
-                    alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
-                    vertical_alignment=ft.CrossAxisAlignment.CENTER,
-                    controls=[self.items_left, ft.OutlinedButton(content="終了分を削除", on_click=self.clear_clicked)],
-                ),
+                self.task_list_view,
+                self.calendar_view,
             ]),
         ]
 
     def did_mount(self):
-        self.page.overlay.append(self.date_picker)
-        self._load()
         self.page.update()
+        asyncio.ensure_future(self._load())
 
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
+        asyncio.ensure_future(_save_storage(data))
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+        self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
+        self.update()
 
-    def _load(self):
-        if not SAVE_FILE.exists():
+    def _save_all_clicked(self, e):
+        self._save()
+
+    def _on_tab_change(self, e):
+        self.update()
+
+    def _cal_prev(self, e):
+        m = self._calendar_ref.month - 1
+        y = self._calendar_ref.year
+        if m < 1:
+            m = 12
+            y -= 1
+        self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        self._update_calendar()
+        self.update()
+
+    def _cal_next(self, e):
+        m = self._calendar_ref.month + 1
+        y = self._calendar_ref.year
+        if m > 12:
+            m = 1
+            y += 1
+        self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        self._update_calendar()
+        self.update()
+
+    def _update_calendar(self):
+        year = self._calendar_ref.year
+        month = self._calendar_ref.month
+        self.calendar_month_text.value = f"{year}年{month}月"
+
+        first_day = date(year, month, 1)
+        start_offset = (first_day.weekday() + 1) % 7
+
+        if month == 12:
+            last_day = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            last_day = date(year, month + 1, 1) - timedelta(days=1)
+        num_days = last_day.day
+
+        sched_map = {}
+        for task in self.tasks.controls:
+            for s in task.schedules:
+                if s["type"] == "インターン":
+                    st = s.get("start")
+                    en = s.get("end") or st
+                    if st:
+                        d = st
+                        while d <= en:
+                            sched_map.setdefault(d, []).append((task.company, s))
+                            d += timedelta(days=1)
+                else:
+                    dt = s.get("date")
+                    if dt:
+                        sched_map.setdefault(dt, []).append((task.company, s))
+
+        day_names = ["日", "月", "火", "水", "木", "金", "土"]
+        today = date.today()
+
+        rows = []
+        rows.append(ft.Row(controls=[
+            ft.Container(ft.Text(n, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                         width=85, height=24, alignment=ft.alignment.center,
+                         bgcolor=ft.Colors.GREY_100 if i == 0 or i == 6 else None)
+            for i, n in enumerate(day_names)
+        ]))
+
+        cells = []
+        for _ in range(start_offset):
+            cells.append(ft.Container(width=85, height=72))
+
+        for day_num in range(1, num_days + 1):
+            d = date(year, month, day_num)
+            is_today = d == today
+            scheds = sched_map.get(d, [])
+            lines = []
+            for company, s in scheds[:3]:
+                icon = SCHEDULE_ICONS.get(s["type"], "🗓")
+                lines.append(ft.Text(f"{icon}{company[:5]}", size=9, no_wrap=True,
+                                     overflow=ft.TextOverflow.ELLIPSIS))
+            if len(scheds) > 3:
+                lines.append(ft.Text(f"+{len(scheds)-3}件", size=9, color=ft.Colors.GREY_500))
+
+            cell = ft.Container(
+                content=ft.Column(spacing=1, controls=[
+                    ft.Container(
+                        content=ft.Text(str(day_num), size=10,
+                                        weight=ft.FontWeight.BOLD if is_today else None,
+                                        color=ft.Colors.WHITE if is_today else None),
+                        width=20, height=20, border_radius=10,
+                        bgcolor=ft.Colors.BLUE_400 if is_today else None,
+                        alignment=ft.alignment.center,
+                    ),
+                    *lines,
+                ]),
+                width=85, height=72,
+                border=ft.border.all(0.5, ft.Colors.GREY_300),
+                padding=ft.Padding(left=2, top=2, right=2, bottom=2),
+            )
+            cells.append(cell)
+
+        while len(cells) % 7 != 0:
+            cells.append(ft.Container(width=85, height=72))
+
+        for i in range(0, len(cells), 7):
+            rows.append(ft.Row(controls=cells[i:i+7]))
+
+        self.calendar_grid.controls = rows
+
+    async def _load(self):
+        if self.tasks.controls:
             return
+        data = None
         try:
-            data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
+            data = await _load_storage()
         except Exception:
-            return
+            pass
+        if data is None:
+            if not SAVE_FILE.exists():
+                self.page.update()
+                return
+            try:
+                data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
+            except Exception:
+                self.page.update()
+                return
         for d in data:
-            def parse(s): return date.fromisoformat(s) if s else None
+            if "schedules" in d:
+                schedules = [schedule_from_dict(s) for s in d["schedules"]]
+            else:
+                # 後方互換
+                def p(s): return date.fromisoformat(s) if s else None
+                schedules = []
+                if d.get("exam_date"):
+                    schedules.append({"type": "選考", "date": p(d["exam_date"])})
+                if d.get("intern_start"):
+                    schedules.append({"type": "インターン", "start": p(d["intern_start"]),
+                                      "end": p(d.get("intern_end")), "state": "確定"})
+
             task = Task(
                 company=d["company"],
                 industry=d.get("industry", "その他"),
                 status=d.get("status", "ES作成中"),
-                exam_date=parse(d.get("exam_date")),
-                intern_start=parse(d.get("intern_start")),
-                intern_end=parse(d.get("intern_end")),
+                schedules=schedules,
                 task_delete=self.task_delete,
                 task_save=self._save,
             )
             task.completed = d.get("completed", False)
             self.tasks.controls.append(task)
-
-    def _open(self, target: str):
-        self._picker_target = target
-        self.date_picker.open = True
+        if self.tasks.controls:
+            self.save_indicator.value = "💾 保存済み"
         self.page.update()
-
-    def _date_picked(self, e):
-        if not self.date_picker.value:
-            return
-        v = self.date_picker.value
-        d = v.date() if hasattr(v, "date") else v
-        if self._picker_target == "exam":
-            self.selected_exam = d
-            self.exam_date_btn.text = f"📅 {fmt(d)}"
-        elif self._picker_target == "intern_start":
-            self.selected_intern_start = d
-            self.intern_start_btn.text = f"🏢 開始 {fmt(d)}"
-            self.intern_end_btn.visible = True
-        elif self._picker_target == "intern_end":
-            self.selected_intern_end = d
-            self.intern_end_btn.text = f"〜 終了 {fmt(d)}"
-        self.page.update()
-
-    def _clear_intern(self, e):
-        self.selected_intern_start = None
-        self.selected_intern_end = None
-        self.intern_start_btn.text = "🏢 開始日を選択"
-        self.intern_end_btn.text = "〜 終了日を選択"
-        self.intern_end_btn.visible = False
-        self.update()
 
     async def add_clicked(self, e):
         if not self.company_input.value:
@@ -358,17 +548,12 @@ class TodoApp(ft.Column):
             company=self.company_input.value,
             industry=self.industry_dd.value,
             status=self.status_dd.value,
-            exam_date=self.selected_exam,
-            intern_start=self.selected_intern_start,
-            intern_end=self.selected_intern_end,
+            schedules=[],
             task_delete=self.task_delete,
             task_save=self._save,
         )
         self.tasks.controls.append(task)
         self.company_input.value = ""
-        self.selected_exam = None
-        self.exam_date_btn.text = "📅 選考日を選択"
-        self._clear_intern(None)
         await self.company_input.focus()
         self._save()
         self.update()
@@ -385,13 +570,18 @@ class TodoApp(ft.Column):
 
     def before_update(self):
         status = self.filter.tabs[self.filter_tabs.selected_index].label
+        is_calendar = status == "カレンダー"
+        self.task_list_view.visible = not is_calendar
+        self.calendar_view.visible = is_calendar
         count = 0
         stats: dict[str, int] = {}
         for task in self.tasks.controls:
             task.visible = (
-                status == "すべて"
-                or (status == "選考中" and not task.completed)
-                or (status == "終了" and task.completed)
+                not is_calendar and (
+                    status == "すべて"
+                    or (status == "選考中" and not task.completed)
+                    or (status == "終了" and task.completed)
+                )
             )
             if not task.completed:
                 count += 1
@@ -399,6 +589,8 @@ class TodoApp(ft.Column):
         self.items_left.value = f"{count} 社選考中"
         parts = [f"{s}: {n}社" for s, n in stats.items()]
         self.stats_text.value = "　".join(parts) if parts else ""
+        if is_calendar:
+            self._update_calendar()
 
 
 def main(page: ft.Page):
