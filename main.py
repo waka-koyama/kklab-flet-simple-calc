@@ -420,7 +420,7 @@ class TodoApp(ft.Column):
         self.calendar_month_text.value = f"{year}年{month}月"
 
         first_day = date(year, month, 1)
-        start_offset = (first_day.weekday() + 1) % 7
+        start_offset = first_day.weekday()  # 0=Mon
 
         if month == 12:
             last_day = date(year + 1, 1, 1) - timedelta(days=1)
@@ -444,14 +444,14 @@ class TodoApp(ft.Column):
                     if dt:
                         sched_map.setdefault(dt, []).append((task.company, s))
 
-        day_names = ["日", "月", "火", "水", "木", "金", "土"]
+        day_names = ["月", "火", "水", "木", "金", "土", "日"]
         today = date.today()
 
         rows = []
         rows.append(ft.Row(controls=[
             ft.Container(ft.Text(n, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
                          width=85, height=24, alignment=ft.Alignment.CENTER,
-                         bgcolor=ft.Colors.GREY_100 if i == 0 or i == 6 else None)
+                         bgcolor=ft.Colors.GREY_100 if i >= 5 else None)
             for i, n in enumerate(day_names)
         ]))
 
