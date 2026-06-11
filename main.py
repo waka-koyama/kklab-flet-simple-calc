@@ -450,7 +450,7 @@ class TodoApp(ft.Column):
         rows = []
         rows.append(ft.Row(controls=[
             ft.Container(ft.Text(n, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
-                         width=85, height=24, alignment=ft.alignment.center,
+                         width=85, height=24, alignment=ft.Alignment.CENTER,
                          bgcolor=ft.Colors.GREY_100 if i == 0 or i == 6 else None)
             for i, n in enumerate(day_names)
         ]))
@@ -479,7 +479,7 @@ class TodoApp(ft.Column):
                                         color=ft.Colors.WHITE if is_today else None),
                         width=20, height=20, border_radius=10,
                         bgcolor=ft.Colors.BLUE_400 if is_today else None,
-                        alignment=ft.alignment.center,
+                        alignment=ft.Alignment.CENTER,
                     ),
                     *lines,
                 ]),
