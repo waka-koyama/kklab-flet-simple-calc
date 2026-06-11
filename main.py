@@ -106,7 +106,15 @@ def _make_display_view(task: "Task") -> ft.Container:
                 border_radius=10,
             ))
 
+    memo_text = None
+    if task.memo:
+        memo_text = ft.Text(task.memo[:40] + ("…" if len(task.memo) > 40 else ""),
+                            size=10, color=ft.Colors.GREY_400, italic=True, no_wrap=True,
+                            overflow=ft.TextOverflow.ELLIPSIS)
+
     date_lines = []
+    if memo_text:
+        date_lines.append(memo_text)
     for s in task.schedules:
         icon = SCHEDULE_ICONS.get(s["type"], "🗓")
         if s["type"] == "インターン":
@@ -153,13 +161,14 @@ def _make_display_view(task: "Task") -> ft.Container:
 
 
 class Task(ft.Column):
-    def __init__(self, company, industry, status, schedules, task_delete, task_save=None):
+    def __init__(self, company, industry, status, schedules, task_delete, task_save=None, memo=""):
         super().__init__()
         self.completed = False
         self.company = company
         self.industry = industry
         self.status = status
         self.schedules = schedules
+        self.memo = memo
         self.task_delete = task_delete
         self.task_save = task_save
 
@@ -170,6 +179,7 @@ class Task(ft.Column):
             "status": self.status,
             "completed": self.completed,
             "schedules": [schedule_to_dict(s) for s in self.schedules],
+            "memo": self.memo,
         }
 
     def build(self):
@@ -272,11 +282,14 @@ class Task(ft.Column):
         # 初期描画（まだ page に属していないので sched_col.update() はしない）
         sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
 
+        memo_field = ft.TextField(label="メモ・備考", value=self.memo, multiline=True, min_lines=2, max_lines=4)
+
         def save(e):
             self.company  = name_field.value
             self.industry = industry_dd.value
             self.status   = status_dd.value
             self.schedules = sched_data
+            self.memo = memo_field.value or ""
             dlg.open = False
             self.page.update()
             self.refresh()
@@ -298,6 +311,8 @@ class Task(ft.Column):
                 ft.Text("日程", weight=ft.FontWeight.BOLD),
                 sched_col,
                 ft.TextButton("＋ 日程を追加", on_click=_add),
+                ft.Divider(),
+                memo_field,
             ]),
             actions=[
                 ft.TextButton("保存", on_click=save),
@@ -339,13 +354,34 @@ class TodoApp(ft.Column):
         self.save_btn = ft.FilledTonalButton("保存", on_click=self._save_all_clicked)
 
         # Calendar
+        self._cal_view_mode = "month"
         self._calendar_ref = date.today()
         self.calendar_month_text = ft.Text("", size=16, weight=ft.FontWeight.BOLD)
         self.calendar_prev = ft.IconButton(ft.Icons.NAVIGATE_BEFORE, on_click=self._cal_prev)
         self.calendar_next = ft.IconButton(ft.Icons.NAVIGATE_NEXT, on_click=self._cal_next)
+        self.cal_today_btn = ft.TextButton("📅 今日", on_click=self._cal_today)
         self.calendar_grid = ft.Column(spacing=1)
+        self.cal_mode_selector = ft.SegmentedButton(
+            selected=["month"],
+            on_change=self._on_cal_mode_change,
+            segments=[
+                ft.Segment(value="month", label=ft.Text("月")),
+                ft.Segment(value="week",  label=ft.Text("週")),
+                ft.Segment(value="list",  label=ft.Text("リスト")),
+            ],
+        )
 
-        self.task_list_view = ft.Column(spacing=25, controls=[
+        self._search_query = ""
+        self._search_dirty = False
+        self.search_input = ft.TextField(
+            hint_text="🔍 企業名を検索…", expand=True, height=36,
+            on_change=self._on_search_change, prefix_icon=ft.Icons.SEARCH,
+        )
+        self.search_clear = ft.IconButton(ft.Icons.CLEAR, visible=False, on_click=self._clear_search)
+
+        self.task_list_view = ft.Column(spacing=10, controls=[
+            ft.Row(vertical_alignment=ft.CrossAxisAlignment.CENTER,
+                   controls=[self.search_input, self.search_clear]),
             self.tasks,
             ft.Row(
                 alignment=ft.MainAxisAlignment.SPACE_BETWEEN,
@@ -356,8 +392,9 @@ class TodoApp(ft.Column):
             ),
         ])
         self.calendar_view = ft.Column(spacing=10, visible=False, controls=[
+            ft.Row(alignment=ft.MainAxisAlignment.CENTER, controls=[self.cal_mode_selector]),
             ft.Row(alignment=ft.MainAxisAlignment.CENTER, controls=[
-                self.calendar_prev, self.calendar_month_text, self.calendar_next,
+                self.calendar_prev, self.calendar_month_text, self.calendar_next, self.cal_today_btn,
             ]),
             ft.Container(content=self.calendar_grid, padding=ft.Padding(left=4, top=0, right=4, bottom=0)),
         ])
@@ -394,40 +431,47 @@ class TodoApp(ft.Column):
     def _on_tab_change(self, e):
         self.update()
 
+    def _on_cal_mode_change(self, e):
+        modes = self.cal_mode_selector.selected
+        if modes:
+            self._cal_view_mode = modes[0]
+        self._update_calendar()
+        self.update()
+
+    def _cal_today(self, e):
+        self._calendar_ref = date.today()
+        self._update_calendar()
+        self.update()
+
     def _cal_prev(self, e):
-        m = self._calendar_ref.month - 1
-        y = self._calendar_ref.year
-        if m < 1:
-            m = 12
-            y -= 1
-        self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        if self._cal_view_mode == "month":
+            m = self._calendar_ref.month - 1
+            y = self._calendar_ref.year
+            if m < 1:
+                m = 12; y -= 1
+            self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        elif self._cal_view_mode == "week":
+            self._calendar_ref -= timedelta(days=7)
+        elif self._cal_view_mode == "list":
+            self._calendar_ref -= timedelta(days=30)
         self._update_calendar()
         self.update()
 
     def _cal_next(self, e):
-        m = self._calendar_ref.month + 1
-        y = self._calendar_ref.year
-        if m > 12:
-            m = 1
-            y += 1
-        self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        if self._cal_view_mode == "month":
+            m = self._calendar_ref.month + 1
+            y = self._calendar_ref.year
+            if m > 12:
+                m = 1; y += 1
+            self._calendar_ref = self._calendar_ref.replace(year=y, month=m)
+        elif self._cal_view_mode == "week":
+            self._calendar_ref += timedelta(days=7)
+        elif self._cal_view_mode == "list":
+            self._calendar_ref += timedelta(days=30)
         self._update_calendar()
         self.update()
 
-    def _update_calendar(self):
-        year = self._calendar_ref.year
-        month = self._calendar_ref.month
-        self.calendar_month_text.value = f"{year}年{month}月"
-
-        first_day = date(year, month, 1)
-        start_offset = first_day.weekday()  # 0=Mon
-
-        if month == 12:
-            last_day = date(year + 1, 1, 1) - timedelta(days=1)
-        else:
-            last_day = date(year, month + 1, 1) - timedelta(days=1)
-        num_days = last_day.day
-
+    def _build_sched_map(self):
         sched_map = {}
         for task in self.tasks.controls:
             for s in task.schedules:
@@ -443,59 +487,178 @@ class TodoApp(ft.Column):
                     dt = s.get("date")
                     if dt:
                         sched_map.setdefault(dt, []).append((task.company, s))
+        return sched_map
 
-        day_names = ["月", "火", "水", "木", "金", "土", "日"]
+    def _show_date_schedule(self, d, scheds):
+        if not scheds:
+            return
+        lines = []
+        for company, s in scheds:
+            icon = SCHEDULE_ICONS.get(s["type"], "🗓")
+            if s["type"] == "インターン":
+                if s.get("start"):
+                    label = f"{icon} {company}: インターン {fmt(s['start'])}"
+                    if s.get("end"):
+                        label += f"〜{fmt(s['end'])}"
+                    label += f" [{s.get('state', '希望')}]"
+                else:
+                    label = f"{icon} {company}: インターン（日程未定）"
+            else:
+                if s.get("date"):
+                    label = f"{icon} {company}: {s['type']} {countdown(s['date'])}"
+                else:
+                    label = f"{icon} {company}: {s['type']}（日程未定）"
+            lines.append(ft.Text(label, size=13))
+
+        dow = ["月", "火", "水", "木", "金", "土", "日"][d.weekday()]
+        dlg = ft.AlertDialog(
+            title=ft.Text(f"📅 {fmt(d)}（{dow}）"),
+            content=ft.Column(spacing=6, controls=lines),
+            actions=[ft.TextButton("閉じる", on_click=lambda e: self._close_dialog(dlg))],
+        )
+        self.page.show_dialog(dlg)
+
+    def _close_dialog(self, dlg):
+        dlg.open = False
+        self.page.update()
+
+    def _on_search_change(self, e):
+        self._search_query = (e.control.value or "").strip()
+        self.search_clear.visible = bool(self._search_query)
+        self._search_dirty = True
+        self.update()
+
+    def _clear_search(self, e):
+        self._search_query = ""
+        self.search_input.value = ""
+        self.search_clear.visible = False
+        self._search_dirty = True
+        self.update()
+
+    def _update_calendar(self):
+        if self._cal_view_mode == "month":
+            self._update_calendar_month()
+        elif self._cal_view_mode == "week":
+            self._update_calendar_week()
+        elif self._cal_view_mode == "list":
+            self._update_calendar_list()
+
+    def _day_cell(self, d, scheds, is_today, highlight=True):
+        lines = []
+        for company, s in scheds[:3]:
+            icon = SCHEDULE_ICONS.get(s["type"], "🗓")
+            lines.append(ft.Text(f"{icon}{company[:5]}", size=9, no_wrap=True,
+                                 overflow=ft.TextOverflow.ELLIPSIS))
+        if len(scheds) > 3:
+            lines.append(ft.Text(f"+{len(scheds)-3}件", size=9, color=ft.Colors.GREY_500))
+        return ft.Container(
+            content=ft.Column(spacing=1, controls=[
+                ft.Container(
+                    content=ft.Text(str(d.day), size=10,
+                                    weight=ft.FontWeight.BOLD if is_today else None,
+                                    color=ft.Colors.WHITE if is_today else None),
+                    width=20, height=20, border_radius=10,
+                    bgcolor=ft.Colors.BLUE_400 if is_today else None,
+                    alignment=ft.Alignment.CENTER,
+                ),
+                *lines,
+            ]),
+            width=85, height=72,
+            border=ft.Border.all(0.5, ft.Colors.GREY_300),
+            padding=ft.Padding(left=2, top=2, right=2, bottom=2),
+            on_click=lambda e, d=d, s=scheds: self._show_date_schedule(d, s),
+        )
+
+    def _update_calendar_month(self):
+        year, month = self._calendar_ref.year, self._calendar_ref.month
+        self.calendar_month_text.value = f"{year}年{month}月"
+        first_day = date(year, month, 1)
+        start_offset = first_day.weekday()
+        if month == 12:
+            last_day = date(year + 1, 1, 1) - timedelta(days=1)
+        else:
+            last_day = date(year, month + 1, 1) - timedelta(days=1)
+        num_days = last_day.day
+        sched_map = self._build_sched_map()
         today = date.today()
-
-        rows = []
-        rows.append(ft.Row(controls=[
+        day_names = ["月", "火", "水", "木", "金", "土", "日"]
+        rows = [ft.Row(controls=[
             ft.Container(ft.Text(n, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
                          width=85, height=24, alignment=ft.Alignment.CENTER,
                          bgcolor=ft.Colors.GREY_100 if i >= 5 else None)
             for i, n in enumerate(day_names)
-        ]))
-
+        ])]
         cells = []
         for _ in range(start_offset):
             cells.append(ft.Container(width=85, height=72))
-
         for day_num in range(1, num_days + 1):
             d = date(year, month, day_num)
-            is_today = d == today
-            scheds = sched_map.get(d, [])
-            lines = []
-            for company, s in scheds[:3]:
-                icon = SCHEDULE_ICONS.get(s["type"], "🗓")
-                lines.append(ft.Text(f"{icon}{company[:5]}", size=9, no_wrap=True,
-                                     overflow=ft.TextOverflow.ELLIPSIS))
-            if len(scheds) > 3:
-                lines.append(ft.Text(f"+{len(scheds)-3}件", size=9, color=ft.Colors.GREY_500))
-
-            cell = ft.Container(
-                content=ft.Column(spacing=1, controls=[
-                    ft.Container(
-                        content=ft.Text(str(day_num), size=10,
-                                        weight=ft.FontWeight.BOLD if is_today else None,
-                                        color=ft.Colors.WHITE if is_today else None),
-                        width=20, height=20, border_radius=10,
-                        bgcolor=ft.Colors.BLUE_400 if is_today else None,
-                        alignment=ft.Alignment.CENTER,
-                    ),
-                    *lines,
-                ]),
-                width=85, height=72,
-                border=ft.Border.all(0.5, ft.Colors.GREY_300),
-                padding=ft.Padding(left=2, top=2, right=2, bottom=2),
-            )
-            cells.append(cell)
-
+            cells.append(self._day_cell(d, sched_map.get(d, []), d == today))
         while len(cells) % 7 != 0:
             cells.append(ft.Container(width=85, height=72))
-
         for i in range(0, len(cells), 7):
             rows.append(ft.Row(controls=cells[i:i+7]))
-
         self.calendar_grid.controls = rows
+
+    def _update_calendar_week(self):
+        week_start = self._calendar_ref - timedelta(days=self._calendar_ref.weekday())
+        self.calendar_month_text.value = f"{week_start.year}年{week_start.month}月 第{(week_start.day - 1) // 7 + 1}週"
+        sched_map = self._build_sched_map()
+        today = date.today()
+        day_names = ["月", "火", "水", "木", "金", "土", "日"]
+        rows = [ft.Row(controls=[
+            ft.Container(ft.Text(n, size=11, weight=ft.FontWeight.BOLD, text_align=ft.TextAlign.CENTER),
+                         width=85, height=24, alignment=ft.Alignment.CENTER,
+                         bgcolor=ft.Colors.GREY_100 if i >= 5 else None)
+            for i, n in enumerate(day_names)
+        ])]
+        cells = []
+        for i in range(7):
+            d = week_start + timedelta(days=i)
+            cells.append(self._day_cell(d, sched_map.get(d, []), d == today))
+        rows.append(ft.Row(controls=cells))
+        self.calendar_grid.controls = rows
+
+    def _update_calendar_list(self):
+        self.calendar_month_text.value = "日程一覧"
+        items = []
+        for task in self.tasks.controls:
+            for s in task.schedules:
+                items.append((task, s))
+        def sort_key(item):
+            task, s = item
+            if s["type"] == "インターン":
+                return s.get("start") or date.max
+            return s.get("date") or date.max
+        items.sort(key=sort_key)
+
+        if not items:
+            self.calendar_grid.controls = [ft.Text("予定が登録されていません", size=14, color=ft.Colors.GREY_400)]
+            return
+
+        lines = []
+        for task, s in items:
+            icon = SCHEDULE_ICONS.get(s["type"], "🗓")
+            color = INDUSTRIES[task.industry]["color"]
+            if s["type"] == "インターン":
+                if s.get("start"):
+                    detail = f"{fmt(s['start'])}"
+                    if s.get("end"):
+                        detail += f"〜{fmt(s['end'])}"
+                    detail += f" [{s.get('state', '希望')}]"
+                else:
+                    detail = "日程未定"
+            else:
+                detail = countdown(s["date"]) if s.get("date") else "日程未定"
+            lines.append(ft.Container(
+                content=ft.Row(controls=[
+                    ft.Text(f"{icon} {task.company}", size=13, weight=ft.FontWeight.BOLD, color=color),
+                    ft.Text(f"{s['type']} {detail}", size=12, color=ft.Colors.GREY_500),
+                ]),
+                padding=ft.Padding(left=8, top=4, right=8, bottom=4),
+                border=ft.border.only(bottom=ft.border.BorderSide(0.5, ft.Colors.GREY_300)),
+            ))
+        self.calendar_grid.controls = [ft.Column(spacing=2, controls=lines)]
 
     async def _load(self):
         if self.tasks.controls:
@@ -534,6 +697,7 @@ class TodoApp(ft.Column):
                 schedules=schedules,
                 task_delete=self.task_delete,
                 task_save=self._save,
+                memo=d.get("memo", ""),
             )
             task.completed = d.get("completed", False)
             self.tasks.controls.append(task)
@@ -573,11 +737,15 @@ class TodoApp(ft.Column):
         is_calendar = status == "カレンダー"
         self.task_list_view.visible = not is_calendar
         self.calendar_view.visible = is_calendar
+        q = self._search_query.lower() if self._search_query else ""
         count = 0
         stats: dict[str, int] = {}
         for task in self.tasks.controls:
+            match_search = not q or q in task.company.lower()
             task.visible = (
-                not is_calendar and (
+                not is_calendar
+                and match_search
+                and (
                     status == "すべて"
                     or (status == "選考中" and not task.completed)
                     or (status == "終了" and task.completed)
@@ -591,6 +759,7 @@ class TodoApp(ft.Column):
         self.stats_text.value = "　".join(parts) if parts else ""
         if is_calendar:
             self._update_calendar()
+        self._search_dirty = False
 
 
 def main(page: ft.Page):
