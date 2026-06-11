@@ -484,7 +484,7 @@ class TodoApp(ft.Column):
                     *lines,
                 ]),
                 width=85, height=72,
-                border=ft.border.all(0.5, ft.Colors.GREY_300),
+                border=ft.Border.all(0.5, ft.Colors.GREY_300),
                 padding=ft.Padding(left=2, top=2, right=2, bottom=2),
             )
             cells.append(cell)
