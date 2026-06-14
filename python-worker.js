@@ -36,6 +36,25 @@ self.sendPythonOutput = function (text, isStderr) {
     });
 };
 
+self._storageCallbacks = {};
+self._storageId = 0;
+
+self.flet_js._getLocalStorage = function(key) {
+    var id = ++self._storageId;
+    return new Promise(function(resolve) {
+        self._storageCallbacks[id] = resolve;
+        self.postMessage({__storage: true, action: "get", key: key, id: id});
+    });
+};
+
+self.flet_js._setLocalStorage = function(key, value) {
+    var id = ++self._storageId;
+    return new Promise(function(resolve) {
+        self._storageCallbacks[id] = resolve;
+        self.postMessage({__storage: true, action: "set", key: key, value: value, id: id});
+    });
+};
+
 self.initPyodide = async function () {
     try {
         importScripts(self.pyodideUrl);
@@ -223,6 +242,12 @@ self.onmessage = async (event) => {
         self.micropipIncludePre = event.data.micropipIncludePre;
         self.pythonModuleName = event.data.pythonModuleName;
         await self.initPyodide();
+    } else if (event.data && event.data.__storage) {
+        var cb = self._storageCallbacks[event.data.id];
+        if (cb) {
+            delete self._storageCallbacks[event.data.id];
+            cb(event.data.result);
+        }
     } else {
         // message
         flet_js.send(event.data);

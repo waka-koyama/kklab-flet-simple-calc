@@ -21,6 +21,14 @@ globalThis.jsConnect = async function(appId, args, dartOnMessage) {
                 error = event.data;
             }
             app.onPythonInitialized();
+        } else if (event.data && event.data.__storage) {
+            var req = event.data;
+            if (req.action === "get") {
+                app.worker.postMessage({__storage: true, id: req.id, result: localStorage.getItem(req.key)});
+            } else if (req.action === "set") {
+                localStorage.setItem(req.key, req.value);
+                app.worker.postMessage({__storage: true, id: req.id, result: true});
+            }
         } else {
             app.dartOnMessage(event.data);
         }
