@@ -4,20 +4,7 @@ from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
 
 SAVE_FILE = Path(__file__).parent / "data.json"
-
-try:
-    from flet_js import _getLocalStorage, _setLocalStorage
-    _STORE_KEY = "job_app_data"
-    async def _save_storage(data):
-        await _setLocalStorage(_STORE_KEY, json.dumps(data, ensure_ascii=False))
-    async def _load_storage():
-        val = await _getLocalStorage(_STORE_KEY)
-        if val is None:
-            return None
-        return json.loads(str(val))
-except (ImportError, AttributeError):
-    async def _save_storage(data): pass
-    async def _load_storage(): return None
+_STORE_KEY = "job_app_data"
 
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
@@ -559,7 +546,9 @@ class TodoApp(ft.Column):
         ])
 
         self.width = 640
+        self._prefs = ft.SharedPreferences()
         self.controls = [
+            self._prefs,
             ft.Row([ft.Text("📝 就活記録", theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM)],
                    alignment=ft.MainAxisAlignment.CENTER),
             self.stats_text,
@@ -580,9 +569,15 @@ class TodoApp(ft.Column):
         self.page.update()
         asyncio.ensure_future(self._load())
 
+    async def _save_storage(self, data):
+        try:
+            await self._prefs.set(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+        except Exception:
+            pass
+
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
-        asyncio.ensure_future(_save_storage(data))
+        asyncio.ensure_future(self._save_storage(data))
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
         self.update()
@@ -844,8 +839,9 @@ class TodoApp(ft.Column):
         data = None
         for _ in range(3):
             try:
-                data = await _load_storage()
-                if data is not None:
+                val = await self._prefs.get(_STORE_KEY)
+                if val is not None:
+                    data = json.loads(str(val))
                     break
             except Exception:
                 pass
