@@ -1,5 +1,4 @@
 <!DOCTYPE html><html><head>
-  <base href="/">
   <meta charset="UTF-8">
   <meta content="IE=Edge" http-equiv="X-UA-Compatible">
   <meta name="description" content="">
@@ -8,13 +7,13 @@
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="kklab-flet-simple-calc">
-  <link rel="apple-touch-icon" href="icons/apple-touch-icon-192.png">
+  <link rel="apple-touch-icon" href="/kklab-flet-simple-calc/icons/apple-touch-icon-192.png">
 
   <!-- Favicon -->
-  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="icon" type="image/png" href="/kklab-flet-simple-calc/favicon.png">
 
   <title>kklab-flet-simple-calc</title>
-  <link rel="manifest" href="manifest.json">
+  <link rel="manifest" href="/kklab-flet-simple-calc/manifest.json">
 
   <script>
     var flet = {
@@ -22,15 +21,15 @@
       multiView: false,
       noCdn: "False".toLowerCase() == "true",
       webSocketEndpoint: "/ws",
-      entrypointBaseUrl: "/",
-      assetBase: "/",
+      entrypointBaseUrl: "/kklab-flet-simple-calc/",
+      assetBase: "/kklab-flet-simple-calc/",
       routeUrlStrategy: "path",
-      canvasKitBaseUrl: "/canvaskit/",
-      pyodideUrl: "/pyodide/pyodide.js",
+      canvasKitBaseUrl: "/kklab-flet-simple-calc/canvaskit/",
+      pyodideUrl: "/kklab-flet-simple-calc/pyodide/pyodide.js",
       pythonModuleName: "main",
       webRenderer: "auto",
-      fontFallbackBaseUrl: "assets/fonts/", // for Noto Emoji, use Google CDN
-      appPackageUrl: "assets/app/app.zip"
+      fontFallbackBaseUrl: "/kklab-flet-simple-calc/assets/fonts/",
+      appPackageUrl: "/kklab-flet-simple-calc/assets/app/app.zip"
     }
 
     flet.flutterAppLoaded = new Promise((resolve) => {
@@ -41,7 +40,7 @@
       console.log("Flutter app loaded");
     });
   </script>
-  <script src="python.js"></script>
+  <script src="/kklab-flet-simple-calc/python.js"></script>
   <style id="splash-screen-style">
     html {
       height: 100%
@@ -118,11 +117,11 @@
 
 <body>
   <picture id="splash">
-      <source srcset="splash/img/light-1x.png 1x, splash/img/light-2x.png 2x, splash/img/light-3x.png 3x, splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
-      <source srcset="splash/img/dark-1x.png 1x, splash/img/dark-2x.png 2x, splash/img/dark-3x.png 3x, splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
-      <img class="center" aria-hidden="true" src="splash/img/light-1x.png" alt="">
+      <source srcset="/kklab-flet-simple-calc/splash/img/light-1x.png 1x, /kklab-flet-simple-calc/splash/img/light-2x.png 2x, /kklab-flet-simple-calc/splash/img/light-3x.png 3x, /kklab-flet-simple-calc/splash/img/light-4x.png 4x" media="(prefers-color-scheme: light)">
+      <source srcset="/kklab-flet-simple-calc/splash/img/dark-1x.png 1x, /kklab-flet-simple-calc/splash/img/dark-2x.png 2x, /kklab-flet-simple-calc/splash/img/dark-3x.png 3x, /kklab-flet-simple-calc/splash/img/dark-4x.png 4x" media="(prefers-color-scheme: dark)">
+      <img class="center" aria-hidden="true" src="/kklab-flet-simple-calc/splash/img/light-1x.png" alt="">
   </picture>
-  <script src="flutter_bootstrap.js" async=""></script>
+  <script src="/kklab-flet-simple-calc/flutter_bootstrap.js" async=""></script>
 
 
 
