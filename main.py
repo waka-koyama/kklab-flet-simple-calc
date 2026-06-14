@@ -24,22 +24,34 @@ INDUSTRIES = {
     "金融・保険":     {"color": ft.Colors.GREEN_400,  "emoji": "💴"},
     "商社":           {"color": ft.Colors.ORANGE_400, "emoji": "🌐"},
     "メーカー":       {"color": ft.Colors.CYAN_400,   "emoji": "🏭"},
-    "マスコミ・広告":  {"color": ft.Colors.PINK_400,  "emoji": "📺"},
+    "マスコミ・広告":  {"color": ft.Colors.PINK_400,   "emoji": "📺"},
     "コンサル":       {"color": ft.Colors.PURPLE_400, "emoji": "📊"},
+    "インフラ":       {"color": ft.Colors.BROWN_400,  "emoji": "🔧"},
+    "食品":           {"color": ft.Colors.AMBER_400,  "emoji": "🍱"},
     "その他":         {"color": ft.Colors.GREY_400,   "emoji": "🏢"},
 }
 
-STATUSES = ["ES作成中", "ホームページ作成済み", "ES提出済み", "適性検査", "一次面接", "二次面接", "最終面接", "内定", "お祈り"]
-STATUS_COLORS = {
-    "ES作成中":            ft.Colors.GREY_400,
+MAIN_STATUSES = ["ホームページ作成済み", "選考中", "一次面接", "二次面接", "最終面接", "内定", "お祈り", "その他（自由記入）"]
+MAIN_STATUS_COLORS = {
     "ホームページ作成済み": ft.Colors.LIGHT_BLUE_300,
-    "ES提出済み":           ft.Colors.BLUE_300,
-    "適性検査":             ft.Colors.CYAN_400,
-    "一次面接":             ft.Colors.ORANGE_300,
-    "二次面接":             ft.Colors.ORANGE_400,
-    "最終面接":             ft.Colors.DEEP_ORANGE_400,
-    "内定":                 ft.Colors.GREEN_400,
-    "お祈り":               ft.Colors.GREY_600,
+    "選考中":             ft.Colors.ORANGE_300,
+    "一次面接":           ft.Colors.ORANGE_300,
+    "二次面接":           ft.Colors.ORANGE_400,
+    "最終面接":           ft.Colors.DEEP_ORANGE_400,
+    "内定":               ft.Colors.GREEN_400,
+    "お祈り":             ft.Colors.GREY_600,
+    "その他（自由記入）":   ft.Colors.GREY_400,
+}
+
+TAG_GROUPS = [
+    {"label": "ES", "options": ["なし", "未提出", "提出済み"]},
+    {"label": "適性検査", "options": ["なし", "未受験", "受験済み"]},
+    {"label": "性格検査", "options": ["なし", "未受験", "受験済み"]},
+]
+TAG_GROUP_COLORS = {
+    "ES":     ft.Colors.BLUE_200,
+    "適性検査": ft.Colors.INDIGO_200,
+    "性格検査": ft.Colors.PURPLE_200,
 }
 
 SCHEDULE_TYPES = ["ES提出", "適性検査締切", "面接案内", "インターン", "選考", "その他"]
@@ -82,18 +94,30 @@ def schedule_from_dict(d: dict) -> dict:
 
 
 def _make_display_view(task: "Task") -> ft.Container:
-    """Task の状態から表示用 Container を新規作成する"""
     info = INDUSTRIES[task.industry]
     color = info["color"]
     emoji = info["emoji"]
-    status_color = STATUS_COLORS.get(task.status, ft.Colors.GREY_400)
 
     badges = [ft.Container(
-        content=ft.Text(task.status, size=11, color=ft.Colors.WHITE),
-        bgcolor=status_color,
+        content=ft.Text(task.display_main_status, size=11, color=ft.Colors.WHITE),
+        bgcolor=MAIN_STATUS_COLORS.get(task.main_status, ft.Colors.GREY_400),
         padding=ft.Padding(left=8, right=8, top=2, bottom=2),
         border_radius=10,
     )]
+    for group_label, option in task.tag_groups.items():
+        badges.append(ft.Container(
+            content=ft.Text(f"{group_label}:{option}", size=11, color=ft.Colors.WHITE),
+            bgcolor=TAG_GROUP_COLORS.get(group_label, ft.Colors.GREY_400),
+            padding=ft.Padding(left=8, right=8, top=2, bottom=2),
+            border_radius=10,
+        ))
+    if task.custom_tag:
+        badges.append(ft.Container(
+            content=ft.Text(task.custom_tag, size=11, color=ft.Colors.WHITE),
+            bgcolor=ft.Colors.GREY_400,
+            padding=ft.Padding(left=8, right=8, top=2, bottom=2),
+            border_radius=10,
+        ))
     for s in task.schedules:
         if s["type"] == "インターン" and s.get("state") == "確定" and s.get("start"):
             label = f"🏢 {fmt(s['start'])}"
@@ -161,25 +185,48 @@ def _make_display_view(task: "Task") -> ft.Container:
 
 
 class Task(ft.Column):
-    def __init__(self, company, industry, status, schedules, task_delete, task_save=None, memo=""):
+    def __init__(self, company, industry, main_status, tag_groups=None, task_delete=None, task_save=None,
+                 schedules=None, memo="", custom_main_status="", custom_tag="", created_at=""):
         super().__init__()
-        self.completed = False
         self.company = company
         self.industry = industry
-        self.status = status
-        self.schedules = schedules
-        self.memo = memo
+        self.main_status = main_status
+        self.tag_groups = dict(tag_groups) if tag_groups else {}
+        self.custom_main_status = custom_main_status or ""
+        self.custom_tag = custom_tag or ""
+        self.schedules = schedules or []
+        self.memo = memo or ""
         self.task_delete = task_delete
         self.task_save = task_save
+        self.created_at = created_at or datetime.now().isoformat()
+        self._completed = self.main_status in ("内定", "お祈り")
+        self.display_main_status = self._resolve_display_main_status()
+
+    def _resolve_display_main_status(self):
+        if self.main_status == "その他（自由記入）" and self.custom_main_status:
+            return self.custom_main_status
+        return self.main_status
+
+    @property
+    def completed(self):
+        return self._completed
+
+    @completed.setter
+    def completed(self, value):
+        self._completed = value
 
     def to_dict(self) -> dict:
         return {
             "company": self.company,
             "industry": self.industry,
-            "status": self.status,
+            "main_status": self.main_status,
+            "custom_main_status": self.custom_main_status,
+            "tag_groups": dict(self.tag_groups),
+            "custom_tag": self.custom_tag,
             "completed": self.completed,
             "schedules": [schedule_to_dict(s) for s in self.schedules],
             "memo": self.memo,
+            "created_at": self.created_at,
         }
 
     def build(self):
@@ -188,8 +235,10 @@ class Task(ft.Column):
         self.controls = [_make_display_view(self)]
 
     def refresh(self):
-        """保存後に表示を更新する（controls[0] を差し替え）"""
+        self._completed = self.main_status in ("内定", "お祈り")
+        self.display_main_status = self._resolve_display_main_status()
         self.display_task.label = self.company
+        self.display_task.value = self.completed
         self.controls = [_make_display_view(self)]
         if self.page:
             self.update()
@@ -200,9 +249,59 @@ class Task(ft.Column):
             label="業界", value=self.industry, width=160,
             options=[ft.dropdown.Option(k) for k in INDUSTRIES],
         )
-        status_dd = ft.Dropdown(
-            label="選考状況", value=self.status, width=175,
-            options=[ft.dropdown.Option(s) for s in STATUSES],
+        main_status_dd = ft.Dropdown(
+            label="選考状況", value=self.main_status, width=200,
+            options=[ft.dropdown.Option(s) for s in MAIN_STATUSES],
+        )
+        custom_main_field = ft.TextField(
+            label="その他（自由記入）", value=self.custom_main_status,
+            visible=(self.main_status == "その他（自由記入）"),
+            expand=True,
+        )
+
+        def on_main_status_change(e):
+            custom_main_field.visible = (main_status_dd.value == "その他（自由記入）")
+            self.page.update()
+        main_status_dd.on_select = on_main_status_change
+
+        group_sel = dict(self.tag_groups)
+        all_btns = []
+        group_rows = []
+        for g in TAG_GROUPS:
+            label = g["label"]
+            opts = g["options"]
+            row_ctrls = [ft.Text(f"{label}：", size=12, weight=ft.FontWeight.BOLD)]
+            for opt in opts:
+                selected = group_sel.get(label) == opt
+                btn = ft.TextButton(
+                    content=ft.Text(opt, size=12),
+                    data=(label, opt),
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.BLUE_400 if selected else ft.Colors.GREY_200,
+                        color=ft.Colors.WHITE if selected else ft.Colors.BLACK,
+                    ),
+                    on_click=lambda e, lbl=label, o=opt: _select_group(lbl, o),
+                )
+                all_btns.append(btn)
+                row_ctrls.append(btn)
+            group_rows.append(ft.Row(spacing=4, controls=row_ctrls))
+
+        def _select_group(lbl, opt):
+            group_sel[lbl] = opt
+            for btn in all_btns:
+                b_lbl, b_opt = btn.data
+                sel = group_sel.get(b_lbl) == b_opt
+                btn.style = ft.ButtonStyle(
+                    bgcolor=ft.Colors.BLUE_400 if sel else ft.Colors.GREY_200,
+                    color=ft.Colors.WHITE if sel else ft.Colors.BLACK,
+                )
+            self.page.update()
+
+        tag_column = ft.Column(spacing=4, controls=group_rows)
+
+        custom_tag_field = ft.TextField(
+            label="その他（自由記入）", value=self.custom_tag,
+            expand=True,
         )
 
         sched_data = copy.deepcopy(self.schedules)
@@ -279,17 +378,20 @@ class Task(ft.Column):
             _rebuild()
             self.page.update()
 
-        # 初期描画（まだ page に属していないので sched_col.update() はしない）
         sched_col.controls = [_row(i, s) for i, s in enumerate(sched_data)]
 
         memo_field = ft.TextField(label="メモ・備考", value=self.memo, multiline=True, min_lines=2, max_lines=4)
 
         def save(e):
-            self.company  = name_field.value
+            self.company = name_field.value
             self.industry = industry_dd.value
-            self.status   = status_dd.value
+            self.main_status = main_status_dd.value
+            self.custom_main_status = custom_main_field.value if main_status_dd.value == "その他（自由記入）" else ""
+            self.tag_groups = {k: v for k, v in group_sel.items() if v}
+            self.custom_tag = custom_tag_field.value or ""
             self.schedules = sched_data
             self.memo = memo_field.value or ""
+            self._completed = main_status_dd.value in ("内定", "お祈り")
             dlg.open = False
             self.page.update()
             self.refresh()
@@ -306,7 +408,12 @@ class Task(ft.Column):
             title=ft.Text("企業情報を編集"),
             content=ft.Column(spacing=10, width=420, scroll=ft.ScrollMode.AUTO, controls=[
                 name_field,
-                ft.Row(wrap=True, spacing=8, controls=[industry_dd, status_dd]),
+                ft.Row(wrap=True, spacing=8, controls=[industry_dd, main_status_dd]),
+                custom_main_field,
+                ft.Divider(),
+                ft.Text("タグ（複数選択可）", weight=ft.FontWeight.BOLD),
+                tag_column,
+                custom_tag_field,
                 ft.Divider(),
                 ft.Text("日程", weight=ft.FontWeight.BOLD),
                 sched_col,
@@ -322,7 +429,7 @@ class Task(ft.Column):
         self.page.show_dialog(dlg)
 
     def status_changed(self, e):
-        self.completed = self.display_task.value
+        self._completed = self.display_task.value
         if self.task_save:
             self.task_save()
         self.update()
@@ -335,13 +442,31 @@ class TodoApp(ft.Column):
     def build(self):
         self.company_input = ft.TextField(hint_text="企業名を入力…", on_submit=self.add_clicked, expand=True)
         self.industry_dd = ft.Dropdown(
-            value="IT・Web", width=160, label="業界",
+            value="IT・Web", width=130, label="業界",
             options=[ft.dropdown.Option(k) for k in INDUSTRIES],
         )
-        self.status_dd = ft.Dropdown(
-            value="ES作成中", width=175, label="選考状況",
-            options=[ft.dropdown.Option(s) for s in STATUSES],
+        self.add_main_status_dd = ft.Dropdown(
+            value="", width=150, label="選考状況（任意）",
+            options=[ft.dropdown.Option("")] + [ft.dropdown.Option(s) for s in MAIN_STATUSES],
         )
+        self.add_group_sel = {}
+        self.add_group_rows = []
+        for g in TAG_GROUPS:
+            label = g["label"]
+            opts = g["options"]
+            row_ctrls = [ft.Text(f"{label}：", size=12, color=ft.Colors.GREY_500)]
+            for opt in opts:
+                btn = ft.TextButton(
+                    content=ft.Text(opt, size=12),
+                    data=(label, opt),
+                    style=ft.ButtonStyle(
+                        bgcolor=ft.Colors.GREY_200,
+                        color=ft.Colors.BLACK,
+                    ),
+                    on_click=lambda e, lbl=label, o=opt: self._toggle_add_group(lbl, o),
+                )
+                row_ctrls.append(btn)
+            self.add_group_rows.append(ft.Row(spacing=4, controls=row_ctrls))
         self.tasks = ft.Column()
         self.filter = ft.TabBar(
             scrollable=False,
@@ -352,6 +477,40 @@ class TodoApp(ft.Column):
         self.stats_text = ft.Text("", size=12, color=ft.Colors.GREY_500)
         self.save_indicator = ft.Text("", size=11, color=ft.Colors.GREEN_600)
         self.save_btn = ft.FilledTonalButton("保存", on_click=self._save_all_clicked)
+
+        # Filter / Sort controls
+        self.filter_industry = ft.Dropdown(
+            value="すべて", width=120, label="業界",
+            options=[ft.dropdown.Option("すべて")] + [ft.dropdown.Option(k) for k in INDUSTRIES],
+        )
+        self.filter_main_status = ft.Dropdown(
+            value="すべて", width=140, label="メイン状況",
+            options=[ft.dropdown.Option("すべて")] + [ft.dropdown.Option(s) for s in MAIN_STATUSES],
+        )
+        tag_filter_opts = ["すべて"]
+        for g in TAG_GROUPS:
+            for opt in g["options"]:
+                tag_filter_opts.append(f"{g['label']}:{opt}")
+        self.filter_tag = ft.Dropdown(
+            value="すべて", width=140, label="タグ",
+            options=[ft.dropdown.Option(t) for t in tag_filter_opts],
+        )
+        self.sort_by = ft.Dropdown(
+            value="追加日時順（新しい）", width=180, label="並び替え",
+            options=[
+                ft.dropdown.Option("追加日時順（新しい）"),
+                ft.dropdown.Option("追加日時順（古い）"),
+                ft.dropdown.Option("企業名順（昇順）"),
+                ft.dropdown.Option("企業名順（降順）"),
+                ft.dropdown.Option("業界順"),
+                ft.dropdown.Option("メインステータス順"),
+                ft.dropdown.Option("期限日順（近い）"),
+            ],
+        )
+        self.filter_industry.on_select = lambda e: self.update()
+        self.filter_main_status.on_select = lambda e: self.update()
+        self.filter_tag.on_select = lambda e: self.update()
+        self.sort_by.on_select = lambda e: self.update()
 
         # Calendar
         self._cal_view_mode = "month"
@@ -404,11 +563,14 @@ class TodoApp(ft.Column):
             ft.Row([ft.Text("📝 就活記録", theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM)],
                    alignment=ft.MainAxisAlignment.CENTER),
             self.stats_text,
-            ft.Row(controls=[self.company_input,
+            ft.Row(controls=[self.company_input, self.industry_dd, self.add_main_status_dd,
                               ft.FloatingActionButton(icon=ft.Icons.ADD, on_click=self.add_clicked)]),
-            ft.Row(wrap=True, spacing=8, controls=[self.industry_dd, self.status_dd]),
+            ft.Column(spacing=2, controls=self.add_group_rows),
             ft.Column(spacing=25, controls=[
                 self.filter_tabs,
+                ft.Row(wrap=True, spacing=6, controls=[
+                    self.filter_industry, self.filter_main_status, self.filter_tag, self.sort_by,
+                ]),
                 self.task_list_view,
                 self.calendar_view,
             ]),
@@ -429,6 +591,22 @@ class TodoApp(ft.Column):
         self._save()
 
     def _on_tab_change(self, e):
+        self.update()
+
+    def _on_filter_change(self, e):
+        self.update()
+
+    def _toggle_add_group(self, label, opt):
+        self.add_group_sel[label] = opt
+        for row in self.add_group_rows:
+            for c in row.controls[1:]:
+                if isinstance(c, ft.TextButton):
+                    b_lbl, b_opt = c.data
+                    sel = self.add_group_sel.get(b_lbl) == b_opt
+                    c.style = ft.ButtonStyle(
+                        bgcolor=ft.Colors.BLUE_400 if sel else ft.Colors.GREY_200,
+                        color=ft.Colors.WHITE if sel else ft.Colors.BLACK,
+                    )
         self.update()
 
     def _on_cal_mode_change(self, e):
@@ -681,7 +859,6 @@ class TodoApp(ft.Column):
             if "schedules" in d:
                 schedules = [schedule_from_dict(s) for s in d["schedules"]]
             else:
-                # 後方互換
                 def p(s): return date.fromisoformat(s) if s else None
                 schedules = []
                 if d.get("exam_date"):
@@ -690,16 +867,42 @@ class TodoApp(ft.Column):
                     schedules.append({"type": "インターン", "start": p(d["intern_start"]),
                                       "end": p(d.get("intern_end")), "state": "確定"})
 
+            if "main_status" in d:
+                main_status = d["main_status"]
+                tag_groups = d.get("tag_groups", {})
+                custom_main_status = d.get("custom_main_status", "")
+                custom_tag = d.get("custom_tag", "")
+                created_at = d.get("created_at", "")
+                # backward compat: convert old tags list
+                if not tag_groups and "tags" in d:
+                    old_tags = d["tags"]
+                    for ot in old_tags:
+                        for g in TAG_GROUPS:
+                            for opt in g["options"]:
+                                if ot.endswith(opt) or ot == g["label"] + opt:
+                                    tag_groups[g["label"]] = opt
+            else:
+                old_status = d.get("status", "ホームページ作成済み")
+                main_status = old_status if old_status in MAIN_STATUSES else "ホームページ作成済み"
+                tag_groups = {}
+                custom_main_status = ""
+                custom_tag = ""
+                created_at = ""
+
             task = Task(
                 company=d["company"],
                 industry=d.get("industry", "その他"),
-                status=d.get("status", "ES作成中"),
+                main_status=main_status,
+                tag_groups=tag_groups,
+                custom_main_status=custom_main_status,
+                custom_tag=custom_tag,
                 schedules=schedules,
                 task_delete=self.task_delete,
                 task_save=self._save,
                 memo=d.get("memo", ""),
+                created_at=created_at,
             )
-            task.completed = d.get("completed", False)
+            task.completed = d.get("completed", False) or main_status in ("内定", "お祈り")
             self.tasks.controls.append(task)
         if self.tasks.controls:
             self.save_indicator.value = "💾 保存済み"
@@ -708,16 +911,26 @@ class TodoApp(ft.Column):
     async def add_clicked(self, e):
         if not self.company_input.value:
             return
+        main_status = self.add_main_status_dd.value or "ホームページ作成済み"
         task = Task(
             company=self.company_input.value,
             industry=self.industry_dd.value,
-            status=self.status_dd.value,
+            main_status=main_status,
+            tag_groups={k: v for k, v in self.add_group_sel.items() if v},
             schedules=[],
             task_delete=self.task_delete,
             task_save=self._save,
         )
         self.tasks.controls.append(task)
         self.company_input.value = ""
+        self.add_group_sel.clear()
+        for row in self.add_group_rows:
+            for c in row.controls[1:]:
+                if isinstance(c, ft.TextButton):
+                    c.style = ft.ButtonStyle(
+                        bgcolor=ft.Colors.GREY_200,
+                        color=ft.Colors.BLACK,
+                    )
         await self.company_input.focus()
         self._save()
         self.update()
@@ -738,25 +951,74 @@ class TodoApp(ft.Column):
         self.task_list_view.visible = not is_calendar
         self.calendar_view.visible = is_calendar
         q = self._search_query.lower() if self._search_query else ""
-        count = 0
-        stats: dict[str, int] = {}
+
+        filter_industry = self.filter_industry.value
+        filter_main_status = self.filter_main_status.value
+        filter_tag = self.filter_tag.value
+        sort_key = self.sort_by.value
+
         for task in self.tasks.controls:
             match_search = not q or q in task.company.lower()
+            match_industry = filter_industry == "すべて" or task.industry == filter_industry
+            match_main = filter_main_status == "すべて" or task.main_status == filter_main_status
+            match_tag = (filter_tag == "すべて" or
+                         any(f"{k}:{v}" == filter_tag for k, v in task.tag_groups.items()))
+
             task.visible = (
                 not is_calendar
                 and match_search
+                and match_industry
+                and match_main
+                and match_tag
                 and (
                     status == "すべて"
                     or (status == "選考中" and not task.completed)
                     or (status == "終了" and task.completed)
                 )
             )
+
+        count = 0
+        stats: dict[str, int] = {}
+        for task in self.tasks.controls:
             if not task.completed:
                 count += 1
-                stats[task.status] = stats.get(task.status, 0) + 1
+                stats[task.main_status] = stats.get(task.main_status, 0) + 1
         self.items_left.value = f"{count} 社選考中"
         parts = [f"{s}: {n}社" for s, n in stats.items()]
         self.stats_text.value = "　".join(parts) if parts else ""
+
+        # Sort
+        tasks_sorted = list(self.tasks.controls)
+        if sort_key == "追加日時順（新しい）":
+            tasks_sorted.sort(key=lambda t: t.created_at, reverse=True)
+        elif sort_key == "追加日時順（古い）":
+            tasks_sorted.sort(key=lambda t: t.created_at)
+        elif sort_key == "企業名順（昇順）":
+            tasks_sorted.sort(key=lambda t: t.company)
+        elif sort_key == "企業名順（降順）":
+            tasks_sorted.sort(key=lambda t: t.company, reverse=True)
+        elif sort_key == "業界順":
+            ind_order = list(INDUSTRIES.keys())
+            tasks_sorted.sort(key=lambda t: ind_order.index(t.industry) if t.industry in ind_order else 999)
+        elif sort_key == "メインステータス順":
+            st_order = list(MAIN_STATUSES)
+            tasks_sorted.sort(key=lambda t: st_order.index(t.main_status) if t.main_status in st_order else 999)
+        elif sort_key == "期限日順（近い）":
+            def nearest_date(task):
+                best = None
+                for s in task.schedules:
+                    if s["type"] == "インターン":
+                        d = s.get("start")
+                    else:
+                        d = s.get("date")
+                    if d:
+                        delta = abs((d - date.today()).days)
+                        if best is None or delta < best:
+                            best = delta
+                return best if best is not None else 99999
+            tasks_sorted.sort(key=nearest_date)
+        self.tasks.controls = tasks_sorted
+
         if is_calendar:
             self._update_calendar()
         self._search_dirty = False
