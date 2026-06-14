@@ -6,22 +6,17 @@ from pathlib import Path
 SAVE_FILE = Path(__file__).parent / "data.json"
 _STORE_KEY = "job_app_data"
 
-async def _save_storage(data):
-    try:
-        import flet_js
-        await flet_js._setLocalStorage(_STORE_KEY, json.dumps(data, ensure_ascii=False))
-    except Exception:
-        pass
-
-async def _load_storage():
+async def _migrate_old_data(prefs):
     try:
         import flet_js
         val = await flet_js._getLocalStorage(_STORE_KEY)
-        if val is None:
-            return None
-        return json.loads(str(val))
+        if val is not None:
+            data = json.loads(str(val))
+            await prefs.set(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+            return data
     except Exception:
-        return None
+        pass
+    return None
 
 INDUSTRIES = {
     "IT・Web":       {"color": ft.Colors.BLUE_400,   "emoji": "💻"},
@@ -563,7 +558,9 @@ class TodoApp(ft.Column):
         ])
 
         self.width = 640
+        self._prefs = ft.SharedPreferences()
         self.controls = [
+            self._prefs,
             ft.Row([ft.Text("📝 就活記録", theme_style=ft.TextThemeStyle.HEADLINE_MEDIUM)],
                    alignment=ft.MainAxisAlignment.CENTER),
             self.stats_text,
@@ -584,9 +581,15 @@ class TodoApp(ft.Column):
         self.page.update()
         asyncio.ensure_future(self._load())
 
+    async def _sp_save(self, data):
+        try:
+            await self._prefs.set(_STORE_KEY, json.dumps(data, ensure_ascii=False))
+        except Exception:
+            pass
+
     def _save(self):
         data = [t.to_dict() for t in self.tasks.controls]
-        asyncio.ensure_future(_save_storage(data))
+        asyncio.ensure_future(self._sp_save(data))
         SAVE_FILE.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
         self.save_indicator.value = f"💾 {datetime.now().strftime('%H:%M')} 保存"
         self.update()
@@ -848,12 +851,15 @@ class TodoApp(ft.Column):
         data = None
         for _ in range(3):
             try:
-                data = await _load_storage()
-                if data is not None:
+                val = await self._prefs.get(_STORE_KEY)
+                if val is not None:
+                    data = json.loads(str(val))
                     break
             except Exception:
                 pass
             await asyncio.sleep(0.3)
+        if data is None:
+            data = await _migrate_old_data(self._prefs)
         if data is None:
             self.page.update()
             return
