@@ -1,4 +1,4 @@
-import json, copy, asyncio, urllib.request
+import json, copy, asyncio
 import flet as ft
 from datetime import date, datetime, timezone, timedelta
 from pathlib import Path
@@ -842,25 +842,17 @@ class TodoApp(ft.Column):
         if self.tasks.controls:
             return
         data = None
-        try:
-            data = await _load_storage()
-        except Exception:
-            pass
+        for _ in range(3):
+            try:
+                data = await _load_storage()
+                if data is not None:
+                    break
+            except Exception:
+                pass
+            await asyncio.sleep(0.3)
         if data is None:
-            if not SAVE_FILE.exists():
-                try:
-                    url = "https://waka-koyama.github.io/kklab-flet-simple-calc/data.json"
-                    resp = urllib.request.urlopen(url, timeout=5)
-                    data = json.loads(resp.read().decode("utf-8"))
-                except Exception:
-                    self.page.update()
-                    return
-            else:
-                try:
-                    data = json.loads(SAVE_FILE.read_text(encoding="utf-8"))
-                except Exception:
-                    self.page.update()
-                    return
+            self.page.update()
+            return
         for d in data:
             if "schedules" in d:
                 schedules = [schedule_from_dict(s) for s in d["schedules"]]
